@@ -4,7 +4,9 @@ const {
   createAudioPlayer,
   createAudioResource,
   getVoiceConnection,
-  AudioPlayerStatus
+  AudioPlayerStatus,
+  entersState,
+  VoiceConnectionStatus
 } = require('@discordjs/voice');
 const play = require('play-dl');
 
@@ -19,7 +21,6 @@ const client = new Client({
 
 const token = process.env.TOKEN;
 
-// Guardar reproductores por servidor
 const players = new Map();
 
 client.once('ready', () => {
@@ -36,13 +37,11 @@ client.on('messageCreate', async (message) => {
   // 🎵 PLAY
   if (cmd === '!play') {
     const url = args[1];
-
-    if (!url) return message.reply('❌ Pasá un link de YouTube');
+    if (!url) return message.reply('❌ Pasá un link');
 
     const member = await message.guild.members.fetch(message.author.id);
     const vc = member.voice.channel;
-
-    if (!vc) return message.reply('❌ Tenés que estar en un canal de voz');
+    if (!vc) return message.reply('❌ Entrá a un canal de voz');
 
     try {
       let connection = getVoiceConnection(message.guild.id);
@@ -53,12 +52,18 @@ client.on('messageCreate', async (message) => {
           guildId: message.guild.id,
           adapterCreator: message.guild.voiceAdapterCreator
         });
+
+        await entersState(connection, VoiceConnectionStatus.Ready, 20000);
       }
 
       const stream = await play.stream(url);
+
       const resource = createAudioResource(stream.stream, {
-        inputType: stream.type
+        inputType: stream.type,
+        inlineVolume: true
       });
+
+      resource.volume.setVolume(0.5);
 
       let player = players.get(message.guild.id);
 
@@ -75,7 +80,7 @@ client.on('messageCreate', async (message) => {
       player.play(resource);
       connection.subscribe(player);
 
-      message.reply('🎶 Reproduciendo...');
+      message.reply('🎶 Reproduciendo');
 
     } catch (err) {
       console.log(err);
@@ -107,26 +112,14 @@ client.on('messageCreate', async (message) => {
     if (connection) {
       connection.destroy();
       players.delete(message.guild.id);
-      message.reply('⏹ Música detenida');
+      message.reply('⏹ Detenido');
     } else {
       message.reply('❌ No hay música');
     }
   }
 });
 
-client.login(token);const { Client, GatewayIntentBits } = require('discord.js');
-const {
-  joinVoiceChannel,
-  createAudioPlayer,
-  createAudioResource,
-  getVoiceConnection,
-  AudioPlayerStatus
-} = require('@discordjs/voice');
-const play = require('play-dl');
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
+client.login(token);    GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates
