@@ -21,6 +21,7 @@ const client = new Client({
 
 const token = process.env.TOKEN;
 
+// Guardar players por servidor
 const players = new Map();
 
 client.once('ready', () => {
@@ -29,21 +30,24 @@ client.once('ready', () => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
+  if (!message.guild) return;
   if (!message.content.startsWith('!')) return;
 
-  const args = message.content.split(' ');
-  const cmd = args[0].toLowerCase();
+  const args = message.content.trim().split(/\s+/);
+  const cmd = args.shift().toLowerCase();
 
   // 🎵 PLAY
   if (cmd === '!play') {
-    const url = args[1];
-    if (!url) return message.reply('❌ Pasá un link');
+    const url = args[0];
 
-    const member = await message.guild.members.fetch(message.author.id);
-    const vc = member.voice.channel;
-    if (!vc) return message.reply('❌ Entrá a un canal de voz');
+    if (!url) return message.reply('❌ Pasá un link de YouTube');
 
     try {
+      const member = await message.guild.members.fetch(message.author.id);
+      const vc = member.voice.channel;
+
+      if (!vc) return message.reply('❌ Tenés que estar en un canal de voz');
+
       let connection = getVoiceConnection(message.guild.id);
 
       if (!connection) {
@@ -53,6 +57,7 @@ client.on('messageCreate', async (message) => {
           adapterCreator: message.guild.voiceAdapterCreator
         });
 
+        // Espera a que conecte bien
         await entersState(connection, VoiceConnectionStatus.Ready, 20000);
       }
 
@@ -72,8 +77,13 @@ client.on('messageCreate', async (message) => {
         players.set(message.guild.id, player);
 
         player.on(AudioPlayerStatus.Idle, () => {
-          connection.destroy();
+          const conn = getVoiceConnection(message.guild.id);
+          if (conn) conn.destroy();
           players.delete(message.guild.id);
+        });
+
+        player.on('error', (err) => {
+          console.log('Player error:', err);
         });
       }
 
@@ -83,7 +93,7 @@ client.on('messageCreate', async (message) => {
       message.reply('🎶 Reproduciendo');
 
     } catch (err) {
-      console.log(err);
+      console.log('Play error:', err);
       message.reply('❌ Error al reproducir');
     }
   }
@@ -94,112 +104,10 @@ client.on('messageCreate', async (message) => {
     if (player) {
       player.pause();
       message.reply('⏸ Pausado');
-    }
-  }
-
-  // ▶️ RESUME
-  if (cmd === '!resume') {
-    const player = players.get(message.guild.id);
-    if (player) {
-      player.unpause();
-      message.reply('▶️ Continuando');
-    }
-  }
-
-  // ⏹ STOP
-  if (cmd === '!stop') {
-    const connection = getVoiceConnection(message.guild.id);
-    if (connection) {
-      connection.destroy();
-      players.delete(message.guild.id);
-      message.reply('⏹ Detenido');
     } else {
       message.reply('❌ No hay música');
     }
   }
-});
-
-client.login(token);    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates
-  ]
-});
-
-const token = process.env.TOKEN;
-
-// Guardar reproductores por servidor
-const players = new Map();
-
-client.once('ready', () => {
-  console.log(`✅ Bot listo como ${client.user.tag}`);
-});
-
-client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!')) return;
-
-  const args = message.content.split(' ');
-  const cmd = args[0].toLowerCase();
-
-  // 🎵 PLAY
-  if (cmd === '!play') {
-    const url = args[1];
-
-    if (!url) return message.reply('❌ Pasá un link de YouTube');
-
-    const member = await message.guild.members.fetch(message.author.id);
-    const vc = member.voice.channel;
-
-    if (!vc) return message.reply('❌ Tenés que estar en un canal de voz');
-
-    try {
-      let connection = getVoiceConnection(message.guild.id);
-
-      if (!connection) {
-        connection = joinVoiceChannel({
-          channelId: vc.id,
-          guildId: message.guild.id,
-          adapterCreator: message.guild.voiceAdapterCreator
-        });
-      }
-
-      const stream = await play.stream(url);
-      const resource = createAudioResource(stream.stream, {
-        inputType: stream.type
-      });
-
-      let player = players.get(message.guild.id);
-
-      if (!player) {
-        player = createAudioPlayer();
-        players.set(message.guild.id, player);
-
-        player.on(AudioPlayerStatus.Idle, () => {
-          connection.destroy();
-          players.delete(message.guild.id);
-        });
-      }
-
-      player.play(resource);
-      connection.subscribe(player);
-
-      message.reply('🎶 Reproduciendo...');
-
-    } catch (err) {
-      console.log(err);
-      message.reply('❌ Error al reproducir');
-    }
-  }
-
-  // ⏸ PAUSE
-  if (cmd === '!pause') {
-    const player = players.get(message.guild.id);
-    if (player) {
-      player.pause();
-      message.reply('⏸ Pausado');
-    }
-  }
 
   // ▶️ RESUME
   if (cmd === '!resume') {
@@ -207,6 +115,8 @@ client.on('messageCreate', async (message) => {
     if (player) {
       player.unpause();
       message.reply('▶️ Continuando');
+    } else {
+      message.reply('❌ No hay música');
     }
   }
 
@@ -222,5 +132,9 @@ client.on('messageCreate', async (message) => {
     }
   }
 });
+
+// 🔥 Evita que crashee silenciosamente
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 
 client.login(token);
