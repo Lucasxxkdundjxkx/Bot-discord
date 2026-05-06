@@ -1,5 +1,3 @@
-require('dotenv').config();
-
 const { Client, GatewayIntentBits } = require('discord.js');
 const {
   joinVoiceChannel,
@@ -23,7 +21,6 @@ const client = new Client({
 
 const token = process.env.TOKEN;
 
-// Guardar players por servidor
 const players = new Map();
 
 client.once('ready', () => {
@@ -38,10 +35,8 @@ client.on('messageCreate', async (message) => {
   const args = message.content.trim().split(/\s+/);
   const cmd = args.shift().toLowerCase();
 
-  // 🎵 PLAY
   if (cmd === '!play') {
     const url = args[0];
-
     if (!url) return message.reply('❌ Pasá un link de YouTube');
 
     try {
@@ -59,7 +54,6 @@ client.on('messageCreate', async (message) => {
           adapterCreator: message.guild.voiceAdapterCreator
         });
 
-        // Espera a que conecte bien
         await entersState(connection, VoiceConnectionStatus.Ready, 20000);
       }
 
@@ -93,14 +87,12 @@ client.on('messageCreate', async (message) => {
       connection.subscribe(player);
 
       message.reply('🎶 Reproduciendo');
-
     } catch (err) {
       console.log('Play error:', err);
       message.reply('❌ Error al reproducir');
     }
   }
 
-  // ⏸ PAUSE
   if (cmd === '!pause') {
     const player = players.get(message.guild.id);
     if (player) {
@@ -111,7 +103,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // ▶️ RESUME
   if (cmd === '!resume') {
     const player = players.get(message.guild.id);
     if (player) {
@@ -122,7 +113,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // ⏹ STOP
   if (cmd === '!stop') {
     const connection = getVoiceConnection(message.guild.id);
     if (connection) {
@@ -135,8 +125,12 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// 🔥 Evita que crashee silenciosamente
 process.on('unhandledRejection', console.error);
 process.on('uncaughtException', console.error);
+
+if (!token) {
+  console.error('❌ TOKEN no definido');
+  process.exit(1);
+}
 
 client.login(token);
