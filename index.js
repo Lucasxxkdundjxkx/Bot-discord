@@ -1,3 +1,4 @@
+```js
 const { Client, GatewayIntentBits } = require('discord.js');
 const {
   joinVoiceChannel,
@@ -10,6 +11,13 @@ const {
 } = require('@discordjs/voice');
 const play = require('play-dl');
 
+const token = process.env.TOKEN;
+
+if (!token) {
+  console.error('❌ TOKEN no definido');
+  process.exit(1);
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -18,8 +26,6 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates
   ]
 });
-
-const token = process.env.TOKEN;
 
 const players = new Map();
 
@@ -128,11 +134,5 @@ client.on('messageCreate', async (message) => {
 process.on('unhandledRejection', console.error);
 process.on('uncaughtException', console.error);
 
-if (!token) {
-  console.error('❌ TOKEN no definido');
-  process.exit(1);
-}
-
-client.login(process.env.TOKEN);
-;
-}
+client.login(token);
+```
