@@ -1,138 +1,167 @@
-```js
-const { Client, GatewayIntentBits } = require('discord.js');
 const {
-  joinVoiceChannel,
-  createAudioPlayer,
-  createAudioResource,
-  getVoiceConnection,
-  AudioPlayerStatus,
-  entersState,
-  VoiceConnectionStatus
-} = require('@discordjs/voice');
-const play = require('play-dl');
+    Client,
+    GatewayIntentBits,
+    SlashCommandBuilder,
+    REST,
+    Routes
+} = require("discord.js");
 
-const token = process.env.TOKEN;
+const { Shoukaku, Connectors } = require("shoukaku");
 
-if (!token) {
-  console.error('❌ TOKEN no definido');
-  process.exit(1);
-}
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates
-  ]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildVoiceStates
+    ]
+});
+
+const nodes = [
+    {
+        name: "Lavalink",
+        url: "lava-v3.ajieblogs.eu.org:80",
+        auth: "https://dsc.gg/ajidevserver",
+        secure: false
+    }
+];
+
+const shoukaku = new Shoukaku(
+    new Connectors.DiscordJS(client),
+    nodes
+);
+
+const commands = [
+    new SlashCommandBuilder()
+        .setName("play")
+        .setDescription("Reproduce música")
+        .addStringOption(option =>
+            option
+                .setName("query")
+                .setDescription("Nombre o URL")
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName("skip")
+        .setDescription("Salta la canción"),
+
+    new SlashCommandBuilder()
+        .setName("stop")
+        .setDescription("Detiene la música")
+].map(cmd => cmd.toJSON());
+
+const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+(async () => {
+    try {
+        console.log("Registrando slash commands...");
+
+        await rest.put(
+            Routes.applicationCommands(CLIENT_ID),
+            { body: commands }
+        );
+
+        console.log("Slash commands registrados");
+    } catch (err) {
+        console.error(err);
+    }
+})();
+
+client.once("ready", () => {
+    console.log(`${client.user.tag} conectado`);
 });
 
 const players = new Map();
 
-client.once('ready', () => {
-  console.log(`✅ Bot listo como ${client.user.tag}`);
+client.on("interactionCreate", async interaction => {
+
+    if (!interaction.isChatInputCommand()) return;
+
+    const member = interaction.member;
+    const voiceChannel = member.voice.channel;
+
+    if (!voiceChannel) {
+        return interaction.reply({
+            content: "Tenés que entrar a un canal de voz",
+            ephemeral: true
+        });
+    }
+
+    if (interaction.commandName === "play") {
+
+        await interaction.deferReply();
+
+        try {
+
+            const query = interaction.options.getString("query");
+
+            let player = players.get(interaction.guild.id);
+
+            if (!player) {
+
+                const node = shoukaku.getIdealNode();
+
+                player = await node.joinChannel({
+                    guildId: interaction.guild.id,
+                    channelId: voiceChannel.id,
+                    shardId: 0,
+                    deaf: true
+                });
+
+                players.set(interaction.guild.id, player);
+            }
+
+            const result = await player.node.rest.resolve(query);
+
+            if (!result || !result.data.length) {
+                return interaction.editReply("No encontré resultados");
+            }
+
+            const track = result.data[0];
+
+            await player.playTrack({
+                track: track.encoded
+            });
+
+            interaction.editReply(
+                `▶️ Reproduciendo: **${track.info.title}**`
+            );
+
+        } catch (err) {
+            console.error(err);
+            interaction.editReply("Error reproduciendo la canción");
+        }
+    }
+
+    if (interaction.commandName === "skip") {
+
+        const player = players.get(interaction.guild.id);
+
+        if (!player) {
+            return interaction.reply("No hay música reproduciéndose");
+        }
+
+        await player.stopTrack();
+
+        interaction.reply("⏭️ Canción salteada");
+    }
+
+    if (interaction.commandName === "stop") {
+
+        const player = players.get(interaction.guild.id);
+
+        if (!player) {
+            return interaction.reply("No hay música");
+        }
+
+        player.connection.disconnect();
+
+        players.delete(interaction.guild.id);
+
+        interaction.reply("⏹️ Música detenida");
+    }
 });
 
-client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
-  if (!message.guild) return;
-  if (!message.content.startsWith('!')) return;
-
-  const args = message.content.trim().split(/\s+/);
-  const cmd = args.shift().toLowerCase();
-
-  if (cmd === '!play') {
-    const url = args[0];
-    if (!url) return message.reply('❌ Pasá un link de YouTube');
-
-    try {
-      const member = await message.guild.members.fetch(message.author.id);
-      const vc = member.voice.channel;
-
-      if (!vc) return message.reply('❌ Tenés que estar en un canal de voz');
-
-      let connection = getVoiceConnection(message.guild.id);
-
-      if (!connection) {
-        connection = joinVoiceChannel({
-          channelId: vc.id,
-          guildId: message.guild.id,
-          adapterCreator: message.guild.voiceAdapterCreator
-        });
-
-        await entersState(connection, VoiceConnectionStatus.Ready, 20000);
-      }
-
-      const stream = await play.stream(url);
-
-      const resource = createAudioResource(stream.stream, {
-        inputType: stream.type,
-        inlineVolume: true
-      });
-
-      resource.volume.setVolume(0.5);
-
-      let player = players.get(message.guild.id);
-
-      if (!player) {
-        player = createAudioPlayer();
-        players.set(message.guild.id, player);
-
-        player.on(AudioPlayerStatus.Idle, () => {
-          const conn = getVoiceConnection(message.guild.id);
-          if (conn) conn.destroy();
-          players.delete(message.guild.id);
-        });
-
-        player.on('error', (err) => {
-          console.log('Player error:', err);
-        });
-      }
-
-      player.play(resource);
-      connection.subscribe(player);
-
-      message.reply('🎶 Reproduciendo');
-    } catch (err) {
-      console.log('Play error:', err);
-      message.reply('❌ Error al reproducir');
-    }
-  }
-
-  if (cmd === '!pause') {
-    const player = players.get(message.guild.id);
-    if (player) {
-      player.pause();
-      message.reply('⏸ Pausado');
-    } else {
-      message.reply('❌ No hay música');
-    }
-  }
-
-  if (cmd === '!resume') {
-    const player = players.get(message.guild.id);
-    if (player) {
-      player.unpause();
-      message.reply('▶️ Continuando');
-    } else {
-      message.reply('❌ No hay música');
-    }
-  }
-
-  if (cmd === '!stop') {
-    const connection = getVoiceConnection(message.guild.id);
-    if (connection) {
-      connection.destroy();
-      players.delete(message.guild.id);
-      message.reply('⏹ Música detenida');
-    } else {
-      message.reply('❌ No hay música');
-    }
-  }
-});
-
-process.on('unhandledRejection', console.error);
-process.on('uncaughtException', console.error);
-
-client.login(token);
-```
+client.login(TOKEN);
